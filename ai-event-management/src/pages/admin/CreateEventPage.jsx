@@ -1,17 +1,27 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PlusCircle } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import EventForm from '../../components/EventForm';
 import { useApp } from '../../context/AppContext';
+import { getErrorMessage } from '../../services/api';
 
 export default function CreateEventPage() {
   const { createEvent, addToast } = useApp();
   const navigate = useNavigate();
+  const [saving, setSaving] = useState(false);
 
-  function handleSubmit(data) {
-    createEvent(data);
-    addToast(`"${data.name}" created successfully! 🎉`, 'success', 'Event Created');
-    navigate('/admin/events');
+  async function handleSubmit(data) {
+    setSaving(true);
+    try {
+      await createEvent(data);
+      addToast(`"${data.name}" created successfully! 🎉`, 'success', 'Event Created');
+      navigate('/admin/events');
+    } catch (err) {
+      addToast(getErrorMessage(err), 'error', 'Create Failed');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -20,7 +30,7 @@ export default function CreateEventPage() {
         <div className="page-header">
           <div>
             <h1 className="page-title">Create New Event</h1>
-            <p className="page-subtitle">Fill in the details to create a new college event</p>
+            <p className="page-subtitle">Fill in the details to publish a new college event</p>
           </div>
         </div>
 
@@ -37,7 +47,8 @@ export default function CreateEventPage() {
             <EventForm
               onSubmit={handleSubmit}
               onCancel={() => navigate('/admin/events')}
-              submitLabel="Create Event"
+              submitLabel={saving ? 'Creating…' : 'Create Event'}
+              disabled={saving}
             />
           </div>
         </div>

@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Sparkles, Mail, Lock, GraduationCap, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { demoAccounts } from '../../data/mockData';
+import { authAPI, getErrorMessage } from '../../services/api';
 import Toast from '../../components/Toast';
 
 export default function LoginPage() {
   const { login, addToast } = useApp();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: '', password: '', role: 'student' });
+  const [form, setForm]     = useState({ email: '', password: '', role: 'student' });
   const [errors, setErrors] = useState({});
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -25,25 +25,28 @@ export default function LoginPage() {
     return e;
   }
 
-  function handleLogin(e) {
+  async function handleLogin(e) {
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
     setLoading(true);
-    setTimeout(() => {
-      const user = form.role === 'admin' ? demoAccounts.admin : demoAccounts.student;
-      login(user);
-      addToast(`Welcome back, ${user.name}! 👋`, 'success', 'Login Successful');
-      navigate(form.role === 'admin' ? '/admin/dashboard' : '/student/dashboard');
-      setLoading(false);
-    }, 800);
-  }
+    try {
+      const res  = await authAPI.login({ email: form.email, password: form.password });
+      const { token, user } = res.data.data;
 
-  function quickFill(role) {
-    const acc = demoAccounts[role];
-    setForm({ email: acc.email, password: acc.password, role });
-    setErrors({});
+      // Store token + user together so the API interceptor can read it
+      login({ ...user, token });
+
+      addToast(`Welcome back, ${user.name}! 👋`, 'success', 'Login Successful');
+      navigate(user.role === 'admin' ? '/admin/dashboard' : '/student/dashboard');
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      addToast(msg, 'error', 'Login Failed');
+      setErrors({ password: msg });
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -51,9 +54,7 @@ export default function LoginPage() {
       <div className="auth-page">
         <div className="auth-card">
           <div className="auth-logo">
-            <div className="auth-logo-icon">
-              <Sparkles size={20} />
-            </div>
+            <div className="auth-logo-icon"><Sparkles size={20} /></div>
             <div>
               <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>EventAI</div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>AI Event Management</div>
@@ -63,26 +64,15 @@ export default function LoginPage() {
           <h1 className="auth-title">Welcome back 👋</h1>
           <p className="auth-subtitle">Sign in to your account to continue</p>
 
-          {/* Demo info */}
           <div className="demo-info">
-            🧪 <strong>Demo Mode</strong> – No real authentication connected.<br />
-            Use <strong>student@demo.com</strong> or <strong>admin@demo.com</strong> with password <strong>demo123</strong>
-          </div>
-
-          {/* Quick fill buttons */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-            <button type="button" className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => quickFill('student')}>
-              🎓 Fill Student Demo
-            </button>
-            <button type="button" className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => quickFill('admin')}>
-              👑 Fill Admin Demo
-            </button>
+            💡 <strong>First time?</strong> Register an account first, then log in.<br />
+            Make sure the backend server is running on <strong>port 5000</strong>.
           </div>
 
           <form onSubmit={handleLogin} noValidate>
-            {/* Role selector */}
+            {/* Role selector — for navigation only, actual role comes from DB */}
             <div className="form-group">
-              <label className="form-label">Select Role</label>
+              <label className="form-label">I am a</label>
               <div className="role-selector">
                 <div
                   className={`role-option ${form.role === 'student' ? 'selected' : ''}`}
@@ -97,6 +87,7 @@ export default function LoginPage() {
                   <ShieldCheck size={16} /> Admin
                 </div>
               </div>
+              <div className="form-hint">Your actual role is determined by your registered account.</div>
             </div>
 
             <div className="form-group">
@@ -109,6 +100,7 @@ export default function LoginPage() {
                   placeholder="Enter your email"
                   value={form.email}
                   onChange={e => update('email', e.target.value)}
+                  autoComplete="email"
                 />
               </div>
               {errors.email && <div className="form-error">{errors.email}</div>}
@@ -124,6 +116,7 @@ export default function LoginPage() {
                   placeholder="Enter your password"
                   value={form.password}
                   onChange={e => update('password', e.target.value)}
+                  autoComplete="current-password"
                   style={{ paddingRight: 44 }}
                 />
                 <button
@@ -137,7 +130,12 @@ export default function LoginPage() {
               {errors.password && <div className="form-error">{errors.password}</div>}
             </div>
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 8 }} disabled={loading}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ width: '100%', marginTop: 8 }}
+              disabled={loading}
+            >
               {loading ? '⏳ Signing in...' : 'Sign In'}
             </button>
           </form>

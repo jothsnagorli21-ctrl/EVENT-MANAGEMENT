@@ -1,31 +1,37 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Edit } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import EventForm from '../../components/EventForm';
+import LoadingSpinner from '../../components/LoadingSpinner';
 import { useApp } from '../../context/AppContext';
+import { getErrorMessage } from '../../services/api';
 
 export default function EditEventPage() {
   const { id } = useParams();
   const { getEventById, updateEvent, addToast } = useApp();
   const navigate = useNavigate();
+  const [saving, setSaving] = useState(false);
 
   const event = getEventById(id);
 
   if (!event) return (
     <DashboardLayout title="Edit Event">
-      <div style={{ padding: '40px', textAlign: 'center' }}>
-        <h2>Event not found.</h2>
-        <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => navigate('/admin/events')}>
-          Back to Events
-        </button>
-      </div>
+      <LoadingSpinner text="Loading event..." />
     </DashboardLayout>
   );
 
-  function handleSubmit(data) {
-    updateEvent(event.id, data);
-    addToast(`"${data.name}" updated successfully!`, 'success', 'Event Updated');
-    navigate('/admin/events');
+  async function handleSubmit(data) {
+    setSaving(true);
+    try {
+      await updateEvent(event._id, data);
+      addToast(`"${data.name}" updated successfully!`, 'success', 'Event Updated');
+      navigate('/admin/events');
+    } catch (err) {
+      addToast(getErrorMessage(err), 'error', 'Update Failed');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -52,7 +58,8 @@ export default function EditEventPage() {
               initialData={event}
               onSubmit={handleSubmit}
               onCancel={() => navigate('/admin/events')}
-              submitLabel="Save Changes"
+              submitLabel={saving ? 'Saving…' : 'Save Changes'}
+              disabled={saving}
             />
           </div>
         </div>

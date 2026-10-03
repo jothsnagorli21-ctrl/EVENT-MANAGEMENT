@@ -9,7 +9,7 @@ const empty = {
   organizer: '', status: 'Upcoming',
 };
 
-export default function EventForm({ initialData = {}, onSubmit, onCancel, submitLabel = 'Create Event' }) {
+export default function EventForm({ initialData = {}, onSubmit, onCancel, submitLabel = 'Create Event', disabled = false }) {
   const [form, setForm] = useState({ ...empty, ...initialData });
   const [errors, setErrors] = useState({});
 
@@ -107,8 +107,8 @@ export default function EventForm({ initialData = {}, onSubmit, onCancel, submit
       </div>
 
       <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-        <button type="submit" className="btn btn-primary">{submitLabel}</button>
-        <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="btn btn-primary" disabled={disabled}>{submitLabel}</button>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={disabled}>Cancel</button>
       </div>
     </form>
   );

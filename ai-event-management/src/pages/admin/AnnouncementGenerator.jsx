@@ -2,10 +2,13 @@ import { useState } from 'react';
 import { Megaphone, Sparkles, Copy, CheckCheck, RefreshCw, Edit, Eye } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import { InlineSpinner } from '../../components/LoadingSpinner';
+import { mockAnnouncementTemplates } from '../../data/mockData';
+import { aiAPI, getErrorMessage } from '../../services/api';
 import { useApp } from '../../context/AppContext';
 
-function buildAnnouncement(event, template) {
-  if (!event) return '';
+// Build a mock announcement from template when Gemini is unavailable
+function buildMockAnnouncement(event, templateIndex) {
+  const template = mockAnnouncementTemplates[templateIndex % mockAnnouncementTemplates.length];
   const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
   const fmtTime = (t) => {
     if (!t) return '';
@@ -13,7 +16,6 @@ function buildAnnouncement(event, template) {
     const hour = parseInt(h);
     return `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
   };
-
   return template
     .replace(/{eventName}/g, event.name)
     .replace(/{date}/g, fmtDate(event.date))
@@ -23,53 +25,17 @@ function buildAnnouncement(event, template) {
     .replace(/{category}/g, event.category);
 }
 
-const templates = [
-  `🎉 Join us for {eventName}!\n\nGet ready for an exciting experience featuring engaging sessions, hands-on activities, and collaborative learning.\n\n📅 Date: {date}\n⏰ Time: {startTime} – {endTime}\n📍 Venue: {venue}\n🎯 Category: {category}\n\nDon't miss this incredible opportunity to learn, network, and grow!\n\nRegister now and secure your spot before it fills up! 🚀`,
-
-  `📢 Attention Students!\n\nWe are thrilled to announce {eventName} — an event you cannot miss!\n\n{eventName} brings together enthusiastic students, expert mentors, and industry leaders for a day of learning, innovation, and collaboration.\n\n🗓️ Date: {date}\n🕐 Time: {startTime} onwards\n🏛️ Venue: {venue}\n\nSeats are limited — register early!\n\nSee you there! 🎓`,
-
-  `✨ Exciting Opportunity Awaits!\n\n{eventName} is here — your chance to learn, grow, and connect!\n\nThis {category} event will feature expert-led sessions, interactive workshops, and valuable networking opportunities.\n\n📅 When: {date}\n⏰ Time: {startTime} – {endTime}\n📍 Where: {venue}\n\nBe there and be inspired! Register now.\n\n#EventAI #{category}`,
-];
-
 export default function AnnouncementGenerator() {
   const { events, addToast } = useApp();
   const [selectedEventId, setSelectedEventId] = useState('');
-  const [templateIndex, setTemplateIndex] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [announcement, setAnnouncement] = useState('');
-  const [editMode, setEditMode] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [loading,         setLoading]         = useState(false);
+  const [announcement,    setAnnouncement]    = useState('');
+  const [editMode,        setEditMode]        = useState(false);
+  const [copied,          setCopied]          = useState(false);
+  const [usedMock,        setUsedMock]        = useState(false);
+  const [mockIndex,       setMockIndex]       = useState(0);
 
-  const selectedEvent = events.find(e => e.id === Number(selectedEventId));
-
-  function handleGenerate() {
-    if (!selectedEventId) { addToast('Please select an event.', 'warning'); return; }
-    setLoading(true);
-    setAnnouncement('');
-    setEditMode(false);
-    setTimeout(() => {
-      setAnnouncement(buildAnnouncement(selectedEvent, templates[templateIndex]));
-      setLoading(false);
-    }, 1200);
-  }
-
-  function handleRegenerate() {
-    const next = (templateIndex + 1) % templates.length;
-    setTemplateIndex(next);
-    setLoading(true);
-    setTimeout(() => {
-      setAnnouncement(buildAnnouncement(selectedEvent, templates[next]));
-      setLoading(false);
-    }, 1000);
-  }
-
-  function handleCopy() {
-    navigator.clipboard.writeText(announcement).then(() => {
-      setCopied(true);
-      addToast('Announcement copied to clipboard!', 'success', 'Copied');
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
+  const selectedEvent = events.find(e => String(e._id || e.id) === selectedEventId);
 
   function fmtDate(d) {
     if (!d) return '';
@@ -80,6 +46,45 @@ export default function AnnouncementGenerator() {
     const [h, m] = t.split(':');
     const hour = parseInt(h);
     return `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
+  }
+
+  async function handleGenerate(templateIdx = mockIndex) {
+    if (!selectedEventId) { addToast('Please select an event.', 'warning'); return; }
+    setLoading(true);
+    setAnnouncement('');
+    setEditMode(false);
+    setUsedMock(false);
+
+    try {
+      const res = await aiAPI.announcement({ eventId: selectedEventId });
+      setAnnouncement(res.data.data?.announcement || '');
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      // Fallback to mock when Gemini key is missing
+      if (msg.includes('unavailable') || msg.includes('API key') || msg.includes('GEMINI') || msg.includes('403') || msg.includes('Access denied')) {
+        setAnnouncement(buildMockAnnouncement(selectedEvent, templateIdx));
+        setUsedMock(true);
+        addToast('AI service unavailable – showing sample announcement.', 'warning', 'Using Sample Data');
+      } else {
+        addToast(msg, 'error', 'Generation Failed');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleRegenerate() {
+    const next = mockIndex + 1;
+    setMockIndex(next);
+    handleGenerate(next);
+  }
+
+  function handleCopy() {
+    navigator.clipboard.writeText(announcement).then(() => {
+      setCopied(true);
+      addToast('Announcement copied to clipboard!', 'success', 'Copied');
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   return (
@@ -102,21 +107,24 @@ export default function AnnouncementGenerator() {
             <div className="card-body" style={{ paddingTop: 0 }}>
               <div className="form-group">
                 <label className="form-label">Event <span className="form-required">*</span></label>
-                <select className="form-control" value={selectedEventId} onChange={e => { setSelectedEventId(e.target.value); setAnnouncement(''); }}>
+                <select className="form-control" value={selectedEventId}
+                  onChange={e => { setSelectedEventId(e.target.value); setAnnouncement(''); setUsedMock(false); }}>
                   <option value="">-- Choose an event --</option>
-                  {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  {events.map(e => (
+                    <option key={e._id || e.id} value={e._id || e.id}>{e.name}</option>
+                  ))}
                 </select>
               </div>
 
-              {/* Event info */}
+              {/* Event info card */}
               {selectedEvent && (
                 <div style={{ background: 'var(--bg)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
                   <div style={{ fontWeight: 700, marginBottom: 10, fontSize: '0.875rem' }}>{selectedEvent.name}</div>
                   {[
-                    ['Date',     fmtDate(selectedEvent.date)],
-                    ['Time',     `${fmtTime(selectedEvent.startTime)} – ${fmtTime(selectedEvent.endTime)}`],
-                    ['Venue',    selectedEvent.venue],
-                    ['Category', selectedEvent.category],
+                    ['Date',      fmtDate(selectedEvent.date)],
+                    ['Time',      `${fmtTime(selectedEvent.startTime)} – ${fmtTime(selectedEvent.endTime)}`],
+                    ['Venue',     selectedEvent.venue],
+                    ['Category',  selectedEvent.category],
                     ['Organizer', selectedEvent.organizer],
                   ].map(([k, v]) => (
                     <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: '0.8rem' }}>
@@ -127,15 +135,20 @@ export default function AnnouncementGenerator() {
                 </div>
               )}
 
-              <button className="btn btn-ai" style={{ width: '100%' }} onClick={handleGenerate} disabled={loading}>
-                {loading ? <><InlineSpinner size="spinner-sm" />&nbsp;Generating...</> : <><Sparkles size={16} /> Generate Announcement</>}
+              <button className="btn btn-ai" style={{ width: '100%' }} onClick={() => handleGenerate(mockIndex)} disabled={loading}>
+                {loading
+                  ? <><InlineSpinner size="spinner-sm" />&nbsp;Generating…</>
+                  : <><Sparkles size={16} /> Generate Announcement</>}
               </button>
             </div>
           </div>
 
-          <div className="demo-info" style={{ marginTop: 12 }}>
-            🤖 <strong>Prototype AI Mode</strong> – Uses template-based generation. No AI API required.
-          </div>
+          {usedMock && (
+            <div className="demo-info" style={{ marginTop: 12 }}>
+              ⚠️ <strong>Gemini API key not configured.</strong> Showing a sample announcement. Add a valid
+              <code style={{ fontSize: '0.8rem' }}> GEMINI_API_KEY</code> to the backend <code>.env</code>.
+            </div>
+          )}
         </div>
 
         {/* Right panel */}
@@ -153,43 +166,40 @@ export default function AnnouncementGenerator() {
               <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--warning-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                 <Megaphone size={24} color="var(--warning)" className="animate-pulse" />
               </div>
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>Crafting your announcement...</div>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Crafting your announcement…</div>
               <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>AI is composing a professional announcement.</div>
             </div>
           )}
 
           {announcement && (
             <div>
-              {/* Toolbar */}
               <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                <button className="btn btn-secondary btn-sm" onClick={handleRegenerate}><RefreshCw size={14} /> Regenerate</button>
+                <button className="btn btn-secondary btn-sm" onClick={handleRegenerate} disabled={loading}>
+                  <RefreshCw size={14} /> Regenerate
+                </button>
                 <button className="btn btn-secondary btn-sm" onClick={handleCopy}>
                   {copied ? <><CheckCheck size={14} /> Copied!</> : <><Copy size={14} /> Copy</>}
                 </button>
                 <button className={`btn btn-sm ${editMode ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setEditMode(p => !p)}>
                   {editMode ? <><Eye size={14} /> Preview</> : <><Edit size={14} /> Edit</>}
                 </button>
-                <span className="ai-badge" style={{ marginLeft: 'auto' }}><Sparkles size={12} /> AI Generated</span>
+                {usedMock
+                  ? <span className="badge badge-warning" style={{ marginLeft: 'auto' }}>⚠️ Sample Data</span>
+                  : <span className="ai-badge" style={{ marginLeft: 'auto' }}><Sparkles size={12} /> AI Generated</span>
+                }
               </div>
 
-              {/* Announcement */}
-              {editMode ? (
-                <textarea
-                  className="announcement-edit"
-                  value={announcement}
-                  onChange={e => setAnnouncement(e.target.value)}
-                />
-              ) : (
-                <div className="announcement-preview">{announcement}</div>
-              )}
+              {editMode
+                ? <textarea className="announcement-edit" value={announcement} onChange={e => setAnnouncement(e.target.value)} />
+                : <div className="announcement-preview">{announcement}</div>
+              }
 
-              {/* Usage tips */}
               <div style={{ marginTop: 12, background: 'var(--success-light)', border: '1px solid #bbf7d0', borderRadius: 'var(--radius)', padding: 12 }}>
                 <div style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600, marginBottom: 4 }}>💡 Usage Tips</div>
                 <ul style={{ fontSize: '0.78rem', color: '#166534', paddingLeft: 16 }}>
                   <li>Copy and paste into WhatsApp groups, email, or notice boards</li>
                   <li>Click Edit to customize the announcement text</li>
-                  <li>Click Regenerate to try a different template style</li>
+                  <li>Click Regenerate to get a different style</li>
                 </ul>
               </div>
             </div>
