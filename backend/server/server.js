@@ -31,8 +31,11 @@ const app = express();
 // 3. Core middleware
 // -------------------------------------------------------
 
-// Enable CORS — allow requests from the React frontend
-app.use(cors());
+// Enable CORS — allow requests from the deployed frontend
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
 
 // Parse incoming JSON request bodies
 app.use(express.json());
